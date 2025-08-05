@@ -1,6 +1,7 @@
 package com.worldcoin.idkit_kotlin
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -18,8 +19,8 @@ import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
-import java.util.UUID
 import java.util.Base64
+import java.util.UUID
 import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
 
@@ -92,11 +93,6 @@ class Session(
             signal: String = "",
             actionDescription: String? = null
         ): Session {
-            val keyBytes = ByteArray(32).apply { SecureRandom().nextBytes(this) }
-            val key: SecretKey = SecretKeySpec(keyBytes, "AES")
-
-            val iv = ByteArray(12).apply { SecureRandom().nextBytes(this) }
-
             val payload = CreateRequestPayload(
                 appID = appID,
                 action = action,
@@ -105,7 +101,39 @@ class Session(
                 verificationLevel = verificationLevel
             )
 
-            val response = BridgeClient.createRequest(payload.encrypt(key, iv), bridgeURL)
+            return createSessionInternal(payload, bridgeURL)
+        }
+
+        suspend fun createCredentialCategorySession(
+            appID: AppID,
+            action: String,
+            credentialCategory: Set<CredentialCategory>,
+            bridgeURL: BridgeURL = BridgeURL.default,
+            signal: String = "",
+            actionDescription: String? = null
+        ): Session {
+            val payload = CreateCredentialCategoryRequestPayload(
+                appID = appID,
+                action = action,
+                signal = encodeSignal(signal),
+                actionDescription = actionDescription,
+                credentialCategory = credentialCategory,
+            )
+
+            return createSessionInternal(payload, bridgeURL)
+        }
+
+        private suspend fun createSessionInternal(
+            payload: EncryptablePayload,
+            bridgeURL: BridgeURL
+        ): Session {
+            val keyBytes = ByteArray(32).apply { SecureRandom().nextBytes(this) }
+            val key: SecretKey = SecretKeySpec(keyBytes, "AES")
+
+            val iv = ByteArray(12).apply { SecureRandom().nextBytes(this) }
+
+            val encryptedPayload = payload.encryptPayload(key, iv)
+            val response = BridgeClient.createRequest(encryptedPayload, bridgeURL)
 
             return Session(response.request_id, key, bridgeURL)
         }
