@@ -1,12 +1,12 @@
 package com.worldcoin.idkit_kotlin
 
 import kotlinx.serialization.*
+import kotlinx.serialization.json.Json
 import java.net.URL
+import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import kotlinx.serialization.json.Json
-import java.util.Base64
 
 @Serializable
 data class Proof(
@@ -89,16 +89,18 @@ sealed class AppError(override val message: String) : Throwable(message) {
     object GenericError : AppError("Something unexpected went wrong. Please try again.")
 }
 
+@Serializable
+sealed interface EncryptablePayload
 
 @Serializable
 data class CreateRequestPayload(
     @SerialName("app_id") val appId: String,
-    val action: String,
-    val signal: String,
+    @SerialName("action") val action: String,
+    @SerialName("signal") val signal: String,
     @SerialName("action_description") val actionDescription: String?,
     @SerialName("verification_level") val verificationLevel: VerificationLevel,
     @SerialName("credential_types") val credentialTypes: List<Proof.CredentialType>
-) {
+) : EncryptablePayload {
     constructor(
         appID: AppID,
         action: String,
@@ -111,42 +113,58 @@ data class CreateRequestPayload(
         signal = signal,
         actionDescription = actionDescription,
         verificationLevel = verificationLevel,
-        credentialTypes = if (verificationLevel == VerificationLevel.ORB)
-            listOf(Proof.CredentialType.ORB)
-        else if (verificationLevel == VerificationLevel.SECURE_DOCUMENT)
-            listOf(Proof.CredentialType.ORB, Proof.CredentialType.SECURE_DOCUMENT)
-        else if (verificationLevel == VerificationLevel.DOCUMENT)
-            listOf(Proof.CredentialType.ORB, Proof.CredentialType.SECURE_DOCUMENT, Proof.CredentialType.DOCUMENT)
-        else
-            listOf(Proof.CredentialType.ORB, Proof.CredentialType.DEVICE)
+        credentialTypes = when (verificationLevel) {
+            VerificationLevel.ORB -> listOf(Proof.CredentialType.ORB)
+            VerificationLevel.SECURE_DOCUMENT -> listOf(
+                Proof.CredentialType.ORB,
+                Proof.CredentialType.SECURE_DOCUMENT
+            )
+
+            VerificationLevel.DOCUMENT -> listOf(
+                Proof.CredentialType.ORB,
+                Proof.CredentialType.SECURE_DOCUMENT,
+                Proof.CredentialType.DOCUMENT
+            )
+
+            else -> listOf(Proof.CredentialType.ORB, Proof.CredentialType.DEVICE)
+        }
     )
+}
 
-    @Throws(Exception::class)
-    fun encrypt(key: SecretKey, nonce: ByteArray): Payload {
-        val jsonString = Json.encodeToString(this)
-        val data = jsonString.toByteArray()
+@Serializable
+data class CreateCredentialCategoryRequestPayload(
+    @SerialName("app_id") val appId: String,
+    @SerialName("action") val action: String,
+    @SerialName("signal") val signal: String,
+    @SerialName("action_description") val actionDescription: String?,
+    @SerialName("credential_category") val credentialCategory: Set<CredentialCategory>
+) : EncryptablePayload {
+    constructor(
+        appID: AppID,
+        action: String,
+        signal: String,
+        actionDescription: String?,
+        credentialCategory: Set<CredentialCategory>
+    ) : this(
+        appId = appID.rawId,
+        action = action,
+        signal = signal,
+        actionDescription = actionDescription,
+        credentialCategory = credentialCategory
+    )
+}
 
-        // Initialize the cipher with AES/GCM/NoPadding
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        val spec = GCMParameterSpec(128, nonce)  // 128-bit authentication tag
-        cipher.init(Cipher.ENCRYPT_MODE, key, spec)
+@Serializable
+enum class CredentialCategory {
+    /**
+     * The set of NFC credentials with no authentication.
+     */
+    DOCUMENT,
 
-        // Encrypt the data
-        val sealedBox = cipher.doFinal(data)
-
-        // Extract the ciphertext and the tag
-        val ciphertext = sealedBox.copyOfRange(0, sealedBox.size - 16)
-        val tag = sealedBox.copyOfRange(sealedBox.size - 16, sealedBox.size)
-
-        // Combine ciphertext and tag
-        val payload = ciphertext + tag
-
-        // Return the Payload object containing the IV and the encrypted data
-        return Payload(
-            iv = Base64.getEncoder().encodeToString(nonce),
-            payload = Base64.getEncoder().encodeToString(payload)
-        )
-    }
+    /**
+     * The set of NFC credentials with active or passive authentication.
+     */
+    SECURE_DOCUMENT
 }
 
 @Serializable
@@ -205,4 +223,3 @@ data class BridgeURL(val rawURL: String) {
         }
     }
 }
-
