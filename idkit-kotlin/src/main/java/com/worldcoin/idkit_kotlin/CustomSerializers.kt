@@ -38,12 +38,12 @@ internal object BridgeResponseSerializer : KSerializer<BridgeResponse> {
             }
 
             "proof" in jsonObject -> {
-                val proof = if ("verification_credential_result" in jsonObject) {
-                    jsonDecoder.json.decodeFromJsonElement<Proof.CredentialCategory>(jsonObject)
-                } else {
-                    jsonDecoder.json.decodeFromJsonElement<Proof.Default>(jsonObject)
-                }
+                val proof = jsonDecoder.json.decodeFromJsonElement<Proof.Default>(jsonObject)
+                BridgeResponse.Success(proof)
+            }
 
+            "response" in jsonObject -> {
+                val proof = jsonDecoder.json.decodeFromJsonElement<Proof.CredentialCategory>(jsonObject)
                 BridgeResponse.Success(proof)
             }
 
@@ -78,10 +78,10 @@ internal object AppErrorSerializer : KSerializer<AppError> {
             "inclusion_proof_pending" -> AppError.InclusionProofPending
             "unexpected_response" -> AppError.UnexpectedResponse
             "failed_by_host_app" -> AppError.FailedByHostApp
-            "generic_error" -> AppError.GenericError
+            "generic_error" -> AppError.GenericError()
             else -> {
                 Log.w("IdKit-Kotlin", "Unknown error: $errorString")
-                GenericAppError(errorString)
+                AppError.GenericError("Unknown error: $errorString")
             }
         }
     }
