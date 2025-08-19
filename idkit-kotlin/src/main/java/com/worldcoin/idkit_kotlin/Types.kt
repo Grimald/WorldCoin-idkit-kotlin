@@ -37,12 +37,23 @@ sealed interface Proof {
     @SuppressLint("UnsafeOptInUsageError")
     @Serializable
     data class CredentialCategory(
-        @SerialName("proof") val proof: String,
-        @SerialName("merkle_root") val merkleRoot: String,
-        @SerialName("nullifier_hash") val nullifierHash: String,
-        @SerialName("verification_credential_result")
-        val verificationCredentialResult:  Map<String, String>,
-    ) : Proof
+        @SerialName("response")
+        val response: Response,
+        @SerialName("query")
+        val credentialCategory: List<com.worldcoin.idkit_kotlin.CredentialCategory>,
+    ) : Proof {
+        @Serializable
+        data class Response(
+            @SerialName("proof")
+            val proof: String,
+            @SerialName("merkle_root")
+            val merkleRoot: String,
+            @SerialName("nullifier_hash")
+            val nullifierHash: String,
+            @SerialName("verification_level")
+            val verificationLevel: CredentialType,
+        )
+    }
 }
 
 enum class VerificationLevel {
@@ -132,12 +143,11 @@ sealed interface AppError {
 
     @Serializable
     @SerialName("generic_error")
-    object GenericError : AppError {
-        override val message = "Something unexpected went wrong. Please try again."
+    data class GenericError(val reason: String? = null) : AppError {
+        override val message =
+            "Something unexpected went wrong. Please try again." + reason?.let { "Reason: $it" }.orEmpty()
     }
 }
-
-data class GenericAppError(override val message: String) : AppError
 
 internal class AppErrorThrowable(appError: AppError) : Throwable(appError.message)
 

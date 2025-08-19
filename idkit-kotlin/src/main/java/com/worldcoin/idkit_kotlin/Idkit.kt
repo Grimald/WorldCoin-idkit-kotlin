@@ -184,7 +184,7 @@ class Session(
                 delay(3000)  // Wait for 3 seconds before polling again
             } catch (ex: Exception) {
                 Log.w("IdKit-Kotlin", "Something went wrong: $ex")
-                emit(Status.Failed(AppError.GenericError))
+                emit(Status.Failed(AppError.GenericError(ex.message)))
                 break
             }
         }
