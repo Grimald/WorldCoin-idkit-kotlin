@@ -62,14 +62,15 @@ sealed class Status {
 class Session(
     @Serializable(with = UUIDSerializer::class)  private val requestID: UUID,
     private val key: SecretKey,
-    private val bridgeURL: BridgeURL
+    private val bridgeURL: BridgeURL,
+    private val connectUrlType: ConnectUrlType,
 ) {
 
     /// The URL that the user should be directed to in order to connect their World App to the client.
     val connectUrl: URL
         get() {
             val queryParams = mutableListOf<Pair<String, String>>(
-                "t" to "wld",
+                "t" to connectUrlType.type,
                 "i" to requestID.toString(),
                 "k" to Base64.getEncoder().encodeToString(key.encoded)
             )
@@ -102,7 +103,7 @@ class Session(
                 verificationLevel = verificationLevel
             )
 
-            return createSessionInternal(payload, bridgeURL)
+            return createSessionInternal(payload, bridgeURL, ConnectUrlType.WLD)
         }
 
         suspend fun createCredentialCategorySession(
@@ -121,12 +122,13 @@ class Session(
                 credentialCategory = credentialCategory,
             )
 
-            return createSessionInternal(payload, bridgeURL)
+            return createSessionInternal(payload, bridgeURL, ConnectUrlType.CREDENTIAL_CATEGORY)
         }
 
         private suspend fun createSessionInternal(
             payload: EncryptablePayload,
-            bridgeURL: BridgeURL
+            bridgeURL: BridgeURL,
+            connectUrlType: ConnectUrlType,
         ): Session {
             val keyBytes = ByteArray(32).apply { SecureRandom().nextBytes(this) }
             val key: SecretKey = SecretKeySpec(keyBytes, "AES")
@@ -136,7 +138,7 @@ class Session(
             val encryptedPayload = payload.encryptPayload(key, iv)
             val response = BridgeClient.createRequest(encryptedPayload, bridgeURL)
 
-            return Session(response.request_id, key, bridgeURL)
+            return Session(response.request_id, key, bridgeURL, connectUrlType)
         }
     }
 
