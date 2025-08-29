@@ -287,3 +287,8 @@ data class BridgeURL(val rawURL: String) {
         }
     }
 }
+
+enum class ConnectUrlType(val type: String) {
+    WLD("wld"),
+    CREDENTIAL_CATEGORY("cred"),
+}
