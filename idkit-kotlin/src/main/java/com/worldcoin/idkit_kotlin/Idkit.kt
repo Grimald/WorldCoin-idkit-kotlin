@@ -114,15 +114,47 @@ class Session(
             signal: String = "",
             actionDescription: String? = null
         ): Session {
+            val encodedSignal = encodeSignal(signal)
+            val (orbVerificationRequest, updatedCategories) = processOrbVerification(
+                appID,
+                action,
+                encodedSignal,
+                actionDescription,
+                credentialCategory
+            )
+
             val payload = CreateCredentialCategoryRequestPayload(
                 appID = appID,
                 action = action,
-                signal = encodeSignal(signal),
+                signal = encodedSignal,
                 actionDescription = actionDescription,
-                credentialCategory = credentialCategory,
+                credentialCategory = updatedCategories,
+                orbVerificationRequest = orbVerificationRequest,
             )
 
             return createSessionInternal(payload, bridgeURL, ConnectUrlType.CREDENTIAL_CATEGORY)
+        }
+
+        private fun processOrbVerification(
+            appID: AppID,
+            action: String,
+            signal: String,
+            actionDescription: String?,
+            credentialCategory: Set<CredentialCategory>
+        ): Pair<CreateCredentialCategoryRequestPayload.OrbVerificationRequest?, Set<CredentialCategory>> {
+            return if (CredentialCategory.ORB in credentialCategory) {
+                val updatedCategories = credentialCategory.toMutableSet().apply { remove(CredentialCategory.ORB) }
+                val orbRequest = CreateCredentialCategoryRequestPayload.OrbVerificationRequest(
+                    appId = appID.rawId,
+                    action = action,
+                    signal = encodeSignal(signal),
+                    actionDescription = actionDescription,
+                    verificationLevel = VerificationLevel.ORB.name,
+                )
+                Pair(orbRequest, updatedCategories)
+            } else {
+                Pair(null, credentialCategory)
+            }
         }
 
         private suspend fun createSessionInternal(

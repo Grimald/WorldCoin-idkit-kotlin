@@ -38,7 +38,7 @@ sealed interface Proof {
     @Serializable
     data class CredentialCategory(
         @SerialName("response")
-        val response: Response,
+        val response: List<Response>,
         @SerialName("query")
         val credentialCategory: List<com.worldcoin.idkit_kotlin.CredentialCategory>,
     ) : Proof {
@@ -201,20 +201,37 @@ data class CreateCredentialCategoryRequestPayload(
     @SerialName("action") val action: String,
     @SerialName("signal") val signal: String,
     @SerialName("action_description") val actionDescription: String?,
-    @SerialName("credential_category") val credentialCategory: Set<CredentialCategory>
+    @SerialName("credential_category") val credentialCategory: Set<CredentialCategory>,
+    @SerialName("orb_verification_request") val orbVerificationRequest: OrbVerificationRequest?,
 ) : EncryptablePayload {
     constructor(
         appID: AppID,
         action: String,
         signal: String,
         actionDescription: String?,
-        credentialCategory: Set<CredentialCategory>
+        credentialCategory: Set<CredentialCategory>,
+        orbVerificationRequest: OrbVerificationRequest?,
     ) : this(
         appId = appID.rawId,
         action = action,
         signal = signal,
         actionDescription = actionDescription,
-        credentialCategory = credentialCategory
+        credentialCategory = credentialCategory,
+        orbVerificationRequest = orbVerificationRequest,
+    )
+
+    @Serializable
+    data class OrbVerificationRequest(
+        @SerialName("app_id")
+        val appId: String,
+        @SerialName("action")
+        val action: String,
+        @SerialName("signal")
+        val signal: String,
+        @SerialName("action_description")
+        val actionDescription: String? = null,
+        @SerialName("verification_level")
+        val verificationLevel: String,
     )
 }
 
@@ -229,6 +246,12 @@ enum class CredentialCategory {
      * The set of NFC credentials with active or passive authentication.
      */
     @SerialName("secure_document") SECURE_DOCUMENT,
+
+    /**
+     * The set of Orb-derived credentials (I.E Iris Code)
+     */
+    @SerialName("orb")
+    ORB,
 }
 
 @Serializable
