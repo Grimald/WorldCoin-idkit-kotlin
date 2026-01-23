@@ -12,11 +12,14 @@ The `IDKit` library provides a simple Kotlin interface for prompting users for W
 ## Usage
 
 ```kotlin
-package com.worldcoin.idkit_kotlin
+import com.worldcoin.idkit_kotlin.*
+import kotlinx.coroutines.launch
 
-val session = Session.create(
+// Create a verification session
+val session = IDKit.createSession(
     appID = AppID("app_ce4cb73cb75fc3b73b71ffb4de178410"),
-    action = "test-action"
+    action = "test-action",
+    verificationLevel = VerificationLevel.ORB
 )
 
 // Generate the connect URL (you would typically display this as a QR code)
@@ -24,22 +27,39 @@ val connectUrl = session.connectUrl
 println("Scan this URL with the World App: $connectUrl")
 
 // Monitor the session status
-session.status().collect { status ->
-    when (status) {
-        is Status.WaitingForConnection -> {
-            println("Waiting for the user to scan the QR Code")
-        }
-        is Status.AwaitingConfirmation -> {
-            println("Awaiting user confirmation")
-        }
-        is Status.Confirmed -> {
-            println("Got proof: ${status.proof}")
-        }
-        is Status.Failed -> {
-            println("Got error: ${status.error.message}")
+lifecycleScope.launch {
+    session.status().collect { status ->
+        when (status) {
+            is Status.WaitingForConnection -> {
+                println("Waiting for the user to scan the QR Code")
+            }
+            is Status.AwaitingConfirmation -> {
+                println("Awaiting user confirmation")
+            }
+            is Status.Confirmed -> {
+                println("Verification successful!")
+                println("Proof: ${status.proof}")
+                // Handle successful verification
+            }
+            is Status.Failed -> {
+                println("Verification failed: ${status.error.message}")
+                // Handle error
+            }
         }
     }
 }
+```
+
+### Credential Category Verification
+
+For credential category verification (e.g., specific document types):
+
+```kotlin
+val session = IDKit.createCredentialCategorySession(
+    appID = AppID("app_ce4cb73cb75fc3b73b71ffb4de178410"),
+    action = "verify-document",
+    credentialCategory = setOf(CredentialCategory.NATIONAL_ID, CredentialCategory.PASSPORT)
+)
 ```
 
 ## Installation

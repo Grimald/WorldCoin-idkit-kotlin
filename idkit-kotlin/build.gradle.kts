@@ -1,7 +1,7 @@
 plugins {
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.jetbrainsKotlinAndroid)
-    kotlin("plugin.serialization") version "2.0.0"
+    alias(libs.plugins.kotlinSerialization)
     alias(libs.plugins.mavenPublish)
 }
 
@@ -11,30 +11,48 @@ val libraryVersion = "4.0.0-SNAPSHOT"
 
 android {
     namespace = "com.worldcoin.idkit_kotlin"
-    compileSdk = 34
+    compileSdk = 36
+    
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         minSdk = 26
+        consumerProguardFiles("proguard-rules.pro")
     }
 
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-        }
-    }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "1.8"
+    
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
     }
 }
 
 dependencies {
-    implementation(libs.material)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.coroutines.core)
+
+    implementation(platform(libs.okhttp.bom))
+    implementation(libs.okhttp)
+
     implementation(libs.kotlincrypto.sha3)
+    
+    // Test dependencies
+    testImplementation(libs.junit.jupiter)
+    testImplementation(libs.kotlin.test.junit5)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.mockk)
+    testImplementation(libs.okhttp.mockwebserver)
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
 }
 
 mavenPublishing {

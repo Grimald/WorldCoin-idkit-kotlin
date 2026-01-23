@@ -1,13 +1,11 @@
 package com.worldcoin.idkit_kotlin
 
-import android.annotation.SuppressLint
-import kotlinx.serialization.*
-import kotlinx.serialization.json.Json
+import com.worldcoin.idkit_kotlin.impl.AppErrorSerializer
+import com.worldcoin.idkit_kotlin.impl.AppIDSerializer
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import java.net.MalformedURLException
 import java.net.URL
-import java.util.Base64
-import javax.crypto.Cipher
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
 
 @Serializable
 sealed interface Proof {
@@ -16,25 +14,31 @@ sealed interface Proof {
     enum class CredentialType {
         @SerialName("orb")
         ORB,
+
         @SerialName("secure_document")
         SECURE_DOCUMENT,
+
         @SerialName("document")
         DOCUMENT,
+
         @SerialName("device")
-        DEVICE
+        DEVICE,
     }
 
-    @SuppressLint("UnsafeOptInUsageError")
     @Serializable
     data class Default(
+        @SerialName("proof")
         val proof: String,
-        @SerialName("merkle_root") val merkleRoot: String,
-        @SerialName("nullifier_hash") val nullifierHash: String,
-        @SerialName("credential_type") val credentialType: CredentialType,
-        @SerialName("verification_level") val verificationLevel: CredentialType,
+        @SerialName("merkle_root")
+        val merkleRoot: String,
+        @SerialName("nullifier_hash")
+        val nullifierHash: String,
+        @SerialName("credential_type")
+        val credentialType: CredentialType,
+        @SerialName("verification_level")
+        val verificationLevel: CredentialType,
     ) : Proof
 
-    @SuppressLint("UnsafeOptInUsageError")
     @Serializable
     data class CredentialCategory(
         @SerialName("response")
@@ -61,12 +65,15 @@ sealed interface Proof {
 enum class VerificationLevel {
     @SerialName("orb")
     ORB,
+
     @SerialName("secure_document")
     SECURE_DOCUMENT,
+
     @SerialName("document")
     DOCUMENT,
+
     @SerialName("device")
-    DEVICE
+    DEVICE,
 }
 
 @Serializable(with = AppErrorSerializer::class)
@@ -147,156 +154,112 @@ sealed interface AppError {
     @SerialName("generic_error")
     data class GenericError(val reason: String? = null) : AppError {
         override val message =
-            "Something unexpected went wrong. Please try again." + reason?.let { "Reason: $it" }.orEmpty()
+            "Something unexpected went wrong. Please try again." + reason?.let { "Reason: $it" }
+                .orEmpty()
     }
+
+    /**
+     * SDK-internal error for invalid input parameters.
+     * This error is never received from the Bridge, only created by the SDK.
+     */
+    data class InvalidInput(override val message: String) : AppError
 }
 
-internal class AppErrorThrowable(appError: AppError) : Throwable(appError.message)
-
-@Serializable
-sealed interface EncryptablePayload
-
-@SuppressLint("UnsafeOptInUsageError")
-@Serializable
-data class CreateRequestPayload(
-    @SerialName("app_id") val appId: String,
-    @SerialName("action") val action: String,
-    @SerialName("signal") val signal: String,
-    @SerialName("action_description") val actionDescription: String?,
-    @SerialName("verification_level") val verificationLevel: VerificationLevel,
-    @SerialName("credential_types") val credentialTypes: List<Proof.CredentialType>
-) : EncryptablePayload {
-    constructor(
-        appID: AppID,
-        action: String,
-        signal: String,
-        actionDescription: String?,
-        verificationLevel: VerificationLevel
-    ) : this(
-        appId = appID.rawId,
-        action = action,
-        signal = signal,
-        actionDescription = actionDescription,
-        verificationLevel = verificationLevel,
-        credentialTypes = when (verificationLevel) {
-            VerificationLevel.ORB -> listOf(Proof.CredentialType.ORB)
-            VerificationLevel.SECURE_DOCUMENT -> listOf(
-                Proof.CredentialType.ORB,
-                Proof.CredentialType.SECURE_DOCUMENT
-            )
-
-            VerificationLevel.DOCUMENT -> listOf(
-                Proof.CredentialType.ORB,
-                Proof.CredentialType.SECURE_DOCUMENT,
-                Proof.CredentialType.DOCUMENT
-            )
-
-            else -> listOf(Proof.CredentialType.ORB, Proof.CredentialType.DEVICE)
-        }
-    )
-}
-
-@SuppressLint("UnsafeOptInUsageError")
-@Serializable
-data class CreateCredentialCategoryRequestPayload(
-    @SerialName("app_id") val appId: String,
-    @SerialName("action") val action: String,
-    @SerialName("signal") val signal: String,
-    @SerialName("action_description") val actionDescription: String?,
-    @SerialName("credential_category") val credentialCategory: Set<CredentialCategory>,
-) : EncryptablePayload {
-    constructor(
-        appID: AppID,
-        action: String,
-        signal: String,
-        actionDescription: String?,
-        credentialCategory: Set<CredentialCategory>,
-    ) : this(
-        appId = appID.rawId,
-        action = action,
-        signal = signal,
-        actionDescription = actionDescription,
-        credentialCategory = credentialCategory,
-    )
-}
+/**
+ * Exception thrown when an [AppError] occurs during SDK operations.
+ * This exception wraps SDK-specific errors and provides type-safe error handling.
+ *
+ * @param appError The specific [AppError] that occurred
+ */
+class AppErrorThrowable(val appError: AppError) : Exception(appError.message)
 
 @Serializable
 enum class CredentialCategory {
     /**
      * The set of NFC credentials with no authentication.
      */
-    @SerialName("document") DOCUMENT,
+    @SerialName("document")
+    DOCUMENT,
 
     /**
      * The set of NFC credentials with active or passive authentication.
      */
-    @SerialName("secure_document") SECURE_DOCUMENT,
+    @SerialName("secure_document")
+    SECURE_DOCUMENT,
 
     /**
-    * The set of credentials that proof personhood (I.E Iris Code)
-    */
+     * The set of credentials that proof personhood (I.E Iris Code)
+     */
     @SerialName("personhood")
     PERSONHOOD,
 }
 
-@Serializable
-data class Payload(
-    val iv: String,
-    val payload: String
-) {
-    @Throws(Exception::class)
-    fun decrypt(key: SecretKey): BridgeResponse {
-        // Decode the Base64 encoded payload and IV (nonce)
-        val decodedPayload = Base64.getDecoder().decode(payload)
-        val decodedIV = Base64.getDecoder().decode(iv)
-
-        // Extract ciphertext and authentication tag from the payload
-        val ciphertext = decodedPayload.copyOfRange(0, decodedPayload.size - 16)
-        val authTag = decodedPayload.copyOfRange(decodedPayload.size - 16, decodedPayload.size)
-
-        // Initialize the cipher for decryption
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        val spec = GCMParameterSpec(128, decodedIV)  // 128-bit authentication tag
-        cipher.init(Cipher.DECRYPT_MODE, key, spec)
-
-        // Combine ciphertext and authentication tag for decryption
-        val combined = ciphertext + authTag
-        val decryptedData = cipher.doFinal(combined)
-
-        // Decode the decrypted data back to an object
-        return Json.decodeFromString<BridgeResponse>(String(decryptedData))
-    }
-}
-
-class AppID(val rawId: String) {
-    init {
-        require(rawId.startsWith("app_")) { "Invalid App ID" }
-    }
+/**
+ * Represents a World ID application identifier.
+ * App IDs must start with "app_" prefix. Staging app IDs use "app_staging_" prefix.
+ *
+ * @param rawId The raw application ID string
+ */
+@Serializable(with = AppIDSerializer::class)
+@JvmInline
+value class AppID private constructor(val rawId: String) {
 
     val isStaging: Boolean
         get() = rawId.startsWith("app_staging_")
+    
+    companion object {
+        /**
+         * Creates a new AppID, validating that it starts with "app_".
+         *
+         * @throws IllegalArgumentException if the ID doesn't start with "app_"
+         */
+        operator fun invoke(rawId: String): AppID {
+            require(rawId.startsWith("app_")) { 
+                "Invalid App ID: must start with 'app_', got: '$rawId'" 
+            }
+            return AppID(rawId)
+        }
+    }
 }
 
 @Serializable
 data class BridgeURL(val rawURL: String) {
+
     companion object {
         val default = BridgeURL("https://bridge.worldcoin.org")
     }
 
     init {
-        val url = URL(rawURL)
-        when {
-            url.host == "localhost" || url.host == "127.0.0.1" -> {}
-            url.protocol != "https" -> throw IllegalArgumentException("Bridge URL must use HTTPS.")
-            url.port != -1 -> throw IllegalArgumentException("Bridge URL must use the default port.")
-            url.path != "" && url.path != "/" -> throw IllegalArgumentException("Bridge URL must not contain a path.")
-            url.query != null -> throw IllegalArgumentException("Bridge URL must not contain a query.")
-            url.ref != null -> throw IllegalArgumentException("Bridge URL must not contain a fragment.")
+        validate()
+    }
+
+    private fun validate() {
+        val url = try {
+            URL(rawURL)
+        } catch (e: MalformedURLException) {
+            throw IllegalArgumentException("Invalid URL format: $rawURL", e)
+        }
+
+        // Allow localhost for development
+        if (isLocalhost(url)) return
+
+        require(url.protocol == "https") {
+            "Bridge URL must use HTTPS (got: ${url.protocol})."
+        }
+        require(url.port == -1) {
+            "Bridge URL must not specify a port (got: ${url.port})."
+        }
+        require(url.path.isEmpty() || url.path == "/") {
+            "Bridge URL must not contain a path (got: '${url.path}')."
+        }
+        require(url.query == null) {
+            "Bridge URL must not contain a query string (got: '${url.query}')."
+        }
+        require(url.ref == null) {
+            "Bridge URL must not contain a fragment (got: '#${url.ref}')."
         }
     }
-}
 
-enum class ConnectUrlType(val type: String) {
-    WLD("wld"),
-    CREDENTIAL_CATEGORY("cred"),
+    private fun isLocalhost(url: URL): Boolean =
+        url.host == "localhost" || url.host == "127.0.0.1"
 }

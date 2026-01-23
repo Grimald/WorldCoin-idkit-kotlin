@@ -1,205 +1,147 @@
 package com.worldcoin.idkit_kotlin
 
-import android.util.Log
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import com.worldcoin.idkit_kotlin.impl.session.SessionFactory
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
-import kotlinx.serialization.KSerializer
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.descriptors.PrimitiveKind
-import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
-import kotlinx.serialization.descriptors.SerialDescriptor
-import kotlinx.serialization.encoding.Decoder
-import kotlinx.serialization.json.Json
-import org.kotlincrypto.hash.sha3.Keccak256
-import java.math.BigInteger
-import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
-import java.security.SecureRandom
-import java.util.Base64
-import java.util.UUID
-import javax.crypto.SecretKey
-import javax.crypto.spec.SecretKeySpec
 
-object UUIDSerializer : KSerializer<UUID> {
-    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("UUID", PrimitiveKind.STRING)
-
-    override fun serialize(encoder: kotlinx.serialization.encoding.Encoder, value: UUID) {
-        encoder.encodeString(value.toString())
-    }
-
-    override fun deserialize(decoder: Decoder): UUID {
-        return UUID.fromString(decoder.decodeString())
-    }
-}
-
-
-sealed class Status {
-    object WaitingForConnection : Status()
-    object AwaitingConfirmation : Status()
-    data class Confirmed(val proof: Proof) : Status()
-    data class Failed(val error: AppError) : Status()
-
-    // Optional: Override equals to match Swift's equality behavior
-    override fun equals(other: Any?): Boolean {
-        return when {
-            this === other -> true
-            this::class != other?.let { it::class } -> false
-            else -> true
+/**
+ * Main entry point for the IDKit SDK.
+ * 
+ * IDKit provides a simple Kotlin interface for prompting users for World ID proofs.
+ * The library handles the entire verification flow, including session creation
+ * and result polling.
+ */
+object IDKit {
+    /**
+     * Creates a new World ID verification session.
+     * This function performs network I/O and automatically switches to [kotlinx.coroutines.Dispatchers.IO].
+     * It is safe to call from any coroutine context (including Main).
+     *
+     * @param appID Your app's unique identifier
+     * @param action The action identifier for this verification
+     * @param verificationLevel The required verification level
+     * @param bridgeURL The bridge server URL (defaults to production)
+     * @param signal An optional signal string
+     * @param actionDescription Optional human-readable description of the action
+     * @return A new Session instance
+     * 
+     * @throws AppErrorThrowable if the network request fails or JSON parsing fails
+     */
+    suspend fun createSession(
+        appID: AppID,
+        action: String,
+        verificationLevel: VerificationLevel = VerificationLevel.ORB,
+        bridgeURL: BridgeURL = BridgeURL.default,
+        signal: String = "",
+        actionDescription: String? = null
+    ): Session = SessionFactory.create(
+        appID = appID,
+        action = action,
+        verificationLevel = verificationLevel,
+        bridgeURL = bridgeURL,
+        signal = signal,
+        actionDescription = actionDescription
+    )
+    
+    /**
+     * Creates a new credential category verification session.
+     * This function performs network I/O and automatically switches to [kotlinx.coroutines.Dispatchers.IO].
+     * It is safe to call from any coroutine context (including Main).
+     *
+     * @param appID Your app's unique identifier
+     * @param action The action identifier for this verification
+     * @param credentialCategory The set of required credential categories (must not be empty)
+     * @param bridgeURL The bridge server URL (defaults to production)
+     * @param signal An optional signal string
+     * @param actionDescription Optional human-readable description of the action
+     * @return A new Session instance
+     *
+     * @throws AppErrorThrowable if credentialCategory is empty, the network request fails, or JSON parsing fails
+     */
+    suspend fun createCredentialCategorySession(
+        appID: AppID,
+        action: String,
+        credentialCategory: Set<CredentialCategory>,
+        bridgeURL: BridgeURL = BridgeURL.default,
+        signal: String = "",
+        actionDescription: String? = null
+    ): Session {
+        if (credentialCategory.isEmpty()) {
+            throw AppErrorThrowable(
+                AppError.InvalidInput("credentialCategory must not be empty. Please provide at least one CredentialCategory.")
+            )
         }
-    }
-
-    override fun hashCode(): Int {
-        return this::class.hashCode()
+        
+        return SessionFactory.createCredentialCategorySession(
+            appID = appID,
+            action = action,
+            credentialCategory = credentialCategory,
+            bridgeURL = bridgeURL,
+            signal = signal,
+            actionDescription = actionDescription
+        )
     }
 }
 
-@Serializable
-class Session(
-    @Serializable(with = UUIDSerializer::class)  private val requestID: UUID,
-    private val key: SecretKey,
-    private val bridgeURL: BridgeURL,
-    private val connectUrlType: ConnectUrlType,
-) {
-
-    /// The URL that the user should be directed to in order to connect their World App to the client.
+/**
+ * Represents a World ID verification session.
+ * 
+ * A session encapsulates the state and behavior needed to perform a World ID verification.
+ * It manages the encrypted communication with the Bridge server and provides [Status] updates.
+ */
+interface Session {
+    /**
+     * The [URL] that the user should be directed to in order to connect their World App to the client.
+     * For example, this URL can be displayed as a QR code or used as a deep link.
+     */
     val connectUrl: URL
-        get() {
-            val queryParams = mutableListOf<Pair<String, String>>(
-                "t" to connectUrlType.type,
-                "i" to requestID.toString(),
-                "k" to Base64.getEncoder().encodeToString(key.encoded)
-            )
-
-            if (bridgeURL != BridgeURL.default) {
-                queryParams.add("b" to bridgeURL.rawURL)
-            }
-
-            val queryString = queryParams.joinToString("&") { (key, value) ->
-                "${URLEncoder.encode(key, StandardCharsets.UTF_8.toString())}=${URLEncoder.encode(value, StandardCharsets.UTF_8.toString())}"
-            }
-
-            return URL("https://worldcoin.org/verify?$queryString")
-        }
-
-    companion object {
-        suspend fun create(
-            appID: AppID,
-            action: String,
-            verificationLevel: VerificationLevel = VerificationLevel.ORB,
-            bridgeURL: BridgeURL = BridgeURL.default,
-            signal: String = "",
-            actionDescription: String? = null
-        ): Session {
-            val payload = CreateRequestPayload(
-                appID = appID,
-                action = action,
-                signal = encodeSignal(signal),
-                actionDescription = actionDescription,
-                verificationLevel = verificationLevel
-            )
-
-            return createSessionInternal(payload, bridgeURL, ConnectUrlType.WLD)
-        }
-
-        suspend fun createCredentialCategorySession(
-            appID: AppID,
-            action: String,
-            credentialCategory: Set<CredentialCategory>,
-            bridgeURL: BridgeURL = BridgeURL.default,
-            signal: String = "",
-            actionDescription: String? = null
-        ): Session {
-            val payload = CreateCredentialCategoryRequestPayload(
-                appID = appID,
-                action = action,
-                signal = encodeSignal(signal),
-                actionDescription = actionDescription,
-                credentialCategory = credentialCategory,
-            )
-
-            return createSessionInternal(payload, bridgeURL, ConnectUrlType.CREDENTIAL_CATEGORY)
-        }
-
-        private suspend fun createSessionInternal(
-            payload: EncryptablePayload,
-            bridgeURL: BridgeURL,
-            connectUrlType: ConnectUrlType,
-        ): Session {
-            val keyBytes = ByteArray(32).apply { SecureRandom().nextBytes(this) }
-            val key: SecretKey = SecretKeySpec(keyBytes, "AES")
-
-            val iv = ByteArray(12).apply { SecureRandom().nextBytes(this) }
-
-            val encryptedPayload = payload.encryptPayload(key, iv)
-            val response = BridgeClient.createRequest(encryptedPayload, bridgeURL)
-
-            return Session(response.request_id, key, bridgeURL, connectUrlType)
-        }
-    }
-
-    fun status(): Flow<Status> = flow {
-        var currentStatus: Status = Status.WaitingForConnection
-        emit(currentStatus)
-
-        val requestUrl = URL("${bridgeURL.rawURL}/response/$requestID")
-
-        while (true) {
-            try {
-                val connection = requestUrl.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-
-                val responseStream = connection.inputStream.bufferedReader().readText()
-
-                val bridgeResponse = Json.decodeFromString<BridgeQueryResponse>(responseStream)
-                if (bridgeResponse.status == "completed") {
-                    val payload = bridgeResponse.response ?: throw AppErrorThrowable(AppError.UnexpectedResponse)
-                    when (val decryptedResponse = payload.decrypt(key)) {
-                        is BridgeResponse.Error -> {
-                            emit(Status.Failed(decryptedResponse.error))
-                            break
-                        }
-                        is BridgeResponse.Success -> {
-                            emit(Status.Confirmed(decryptedResponse.proof))
-                            break
-                        }
-
-                        else -> {}
-                    }
-                }
-
-                val status = when (bridgeResponse.status) {
-                    "retrieved" -> Status.AwaitingConfirmation
-                    "initialized" -> Status.WaitingForConnection
-                    else -> throw AppErrorThrowable(AppError.UnexpectedResponse)
-                }
-
-                if (status != currentStatus) {
-                    currentStatus = status
-                    emit(currentStatus)
-                }
-
-                delay(3000)  // Wait for 3 seconds before polling again
-            } catch (ex: Exception) {
-                Log.w("IdKit-Kotlin", "Something went wrong: $ex")
-                emit(Status.Failed(AppError.GenericError(ex.message)))
-                break
-            }
-        }
-    }.flowOn(Dispatchers.IO)
+    
+    /**
+     * Returns a [Flow] that emits [Status] updates for this verification session.
+     * The [Flow] performs network I/O operations and automatically executes on [kotlinx.coroutines.Dispatchers.IO].
+     * Collection of the Flow can happen on any dispatcher (e.g., Main for UI updates).
+     * 
+     * The [Flow] will continue emitting status updates until the verification is complete
+     * (either successfully confirmed or failed). Status updates are emitted whenever
+     * the status changes.
+     *
+     * @return A [Flow] of [Status] updates
+     */
+    fun status(): Flow<Status>
 }
 
-fun encodeSignal(signal: String): String {
-    val bytes = signal.toByteArray()
-    val keccak256 = bytes.keccak256()
-    return "0x" + BigInteger(1, keccak256).shiftRight(8).toString(16)
-}
-
-// Placeholder for cryptographic hashing
-fun ByteArray.keccak256(): ByteArray {
-    return Keccak256().digest(this) // Placeholder
+/**
+ * Represents the current status of a World ID verification session.
+ * 
+ * The verification process goes through several states:
+ * 1. [WaitingForConnection] - Waiting for the user to connect (e.g., scan a QR code or use a deep link)
+ * 2. [AwaitingConfirmation] - User connected, waiting for confirmation
+ * 3. [Confirmed] - Verification completed successfully with proof
+ * 4. [Failed] - Verification failed with an error
+ */
+sealed class Status {
+    /**
+     * The session is waiting for the user to connect with their World App
+     * (e.g., by scanning a QR code or using a deep link).
+     */
+    object WaitingForConnection : Status()
+    
+    /**
+     * The user has connected to the session and it is awaiting their confirmation.
+     */
+    object AwaitingConfirmation : Status()
+    
+    /**
+     * The verification has been completed successfully.
+     * 
+     * @param proof The cryptographic proof of the verification
+     */
+    data class Confirmed(val proof: Proof) : Status()
+    
+    /**
+     * The verification has failed.
+     * 
+     * @param error Details about what went wrong
+     */
+    data class Failed(val error: AppError) : Status()
 }
